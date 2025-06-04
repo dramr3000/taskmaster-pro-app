@@ -7,7 +7,7 @@ import Spinner from './Spinner';
 interface TaskFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (taskData: Omit<Task, 'id' | 'createdAt'>, id?: string) => void;
+  onSave: (taskData: Omit<Task, '_id' | 'createdAt' | 'updatedAt'>) => void;
   taskToEdit: Task | null;
   onSuggestDescription: (title: string) => Promise<string>;
 }
@@ -56,7 +56,7 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({ isOpen, onClose, onSave, 
     if (isOpen) {
         if (taskToEdit) {
             setTitle(taskToEdit.title);
-            setDescription(taskToEdit.description);
+            setDescription(taskToEdit.description || '');
             setStatus(taskToEdit.status);
             setAssigneesInput(taskToEdit.assignees?.join(', ') || '');
             setStakeholdersInput(taskToEdit.stakeholders?.join(', ') || '');
@@ -100,17 +100,18 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({ isOpen, onClose, onSave, 
     const assigneesArray = assigneesInput.split(',').map(a => a.trim()).filter(a => a);
     const stakeholdersArray = stakeholdersInput.split(',').map(s => s.trim()).filter(s => s);
     
-    onSave({ 
-      title, 
-      description, 
-      status, 
-      assignees: assigneesArray, 
-      stakeholders: stakeholdersArray, 
-      startDate: startDate || undefined,
-      dueDate: dueDate || undefined,
-      actualCompletionDate: finalActualCompletionDate, // NEW
-      comments: comments.trim() || undefined
-    }, taskToEdit?.id);
+onSave({
+  title: title.trim(),
+  description: description.trim() || undefined, // Ensure undefined if empty
+  status,
+  assignees: assigneesArray.length > 0 ? assigneesArray : undefined,
+  stakeholders: stakeholdersArray.length > 0 ? stakeholdersArray : undefined,
+  startDate: startDate || undefined,
+  dueDate: dueDate, // dueDate is required, ensure form validates this
+  actualCompletionDate: finalActualCompletionDate,
+  comments: comments.trim() || undefined,
+  // DO NOT include _id, createdAt, or updatedAt here
+});
   };
 
   const handleSuggestDescription = useCallback(async () => {

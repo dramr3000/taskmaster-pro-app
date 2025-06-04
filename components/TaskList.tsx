@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Task } from '../types';
+import type { Task } from '../types'; // Adjusted path assuming types.ts is at root
 import TaskItem from './TaskItem';
 
 interface TaskListProps {
@@ -18,10 +18,10 @@ const TaskList: React.FC<TaskListProps> = ({ tasks, onEditTask, onDeleteTask }) 
     <div className="space-y-4">
       {tasks.map(task => (
         <TaskItem 
-          key={task.id} 
+          key={task._id}                       // MODIFIED: from task.id to task._id
           task={task} 
           onEdit={() => onEditTask(task)}
-          onDelete={() => onDeleteTask(task.id)}
+          onDelete={() => onDeleteTask(task._id)} // MODIFIED: from task.id to task._id
         />
       ))}
     </div>

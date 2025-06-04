@@ -1,0 +1,8 @@
+# netlify.toml
+[build]
+  command = "npm run build" # Or your specific build command (e.g., "vite build")
+  publish = "dist"          # Or your specific publish directory
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"

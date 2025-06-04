@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Task, TaskStatus } from '../types';
+import type { Task } from '../types'; // Also changed to import type
 import { STATUS_COLORS, STATUS_TEXT_COLORS, STATUS_BORDER_COLORS } from '../constants';
 import UsersIcon from './UsersIcon';
 import ChatBubbleIcon from './ChatBubbleIcon'; // Import the new icon

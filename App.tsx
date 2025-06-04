@@ -14,6 +14,7 @@ const App: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null); //
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<TaskStatus | 'ALL'>('ALL');
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
@@ -22,35 +23,35 @@ const App: React.FC = () => {
   const [filterActualCompletionDateFrom, setFilterActualCompletionDateFrom] = useState<string>(''); // New state
   const [filterActualCompletionDateTo, setFilterActualCompletionDateTo] = useState<string>(''); // New state
 
-  useEffect(() => {
+useEffect(() => {
+  const fetchTasks = async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      const storedTasks = localStorage.getItem('tasks');
-      if (storedTasks) {
-        const parsedTasks = JSON.parse(storedTasks);
-        const migratedTasks = parsedTasks.map((task: any) => {
-          if (task.assignee && typeof task.assignee === 'string' && !task.assignees) {
-            return { ...task, assignees: [task.assignee], assignee: undefined };
-          }
-          return task;
-        });
-        setTasks(migratedTasks);
+      const response = await fetch('/.netlify/functions/get-tasks');
+      if (!response.ok) {
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (e) {
+          // Ignore if response is not JSON, keep original HTTP error
+        }
+        throw new Error(errorMessage);
       }
-    } catch (error) {
-      console.error("Failed to load tasks from localStorage:", error);
+      const data: Task[] = await response.json();
+      setTasks(data);
+    } catch (e: any) {
+      console.error("Failed to fetch tasks:", e);
+      setError(e.message || "Could not fetch tasks.");
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
-  }, []);
+  };
 
-  useEffect(() => {
-    if (!isLoading) {
-      try {
-        localStorage.setItem('tasks', JSON.stringify(tasks));
-      } catch (error) {
-        console.error("Failed to save tasks to localStorage:", error);
-      }
-    }
-  }, [tasks, isLoading]);
+  fetchTasks();
+}, []);
+
 
   const openModalForNewTask = useCallback(() => {
     setEditingTask(null);
@@ -67,29 +68,65 @@ const App: React.FC = () => {
     setEditingTask(null);
   }, []);
 
-  const handleSaveTask = useCallback((taskData: Omit<Task, 'id' | 'createdAt'>, id?: string) => {
-    setTasks(prevTasks => {
-      if (id) {
-        return prevTasks.map(task => 
-          task.id === id ? { ...task, ...taskData, id: task.id, createdAt: task.createdAt } : task
-        );
-      } else {
-        const newTask: Task = {
-          ...taskData,
-          id: Date.now().toString(), 
-          createdAt: new Date().toISOString(),
-        };
-        return [newTask, ...prevTasks];
-      }
-    });
-    closeModal();
-  }, [closeModal]);
+const handleSaveTask = useCallback(async (taskDataFromForm: Omit<Task, '_id' | 'createdAt' | 'updatedAt'>) => {
+  setIsLoading(true);
+  setError(null);
 
-  const handleDeleteTask = useCallback((taskId: string) => {
-    if (window.confirm("Are you sure you want to delete this task?")) {
-      setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
+  const dataToSend = {
+    ...taskDataFromForm,
+    dueDate: new Date(taskDataFromForm.dueDate!).toISOString(),
+    startDate: taskDataFromForm.startDate ? new Date(taskDataFromForm.startDate).toISOString() : undefined,
+  };
+
+  try {
+    if (editingTask && editingTask._id) {
+      setTasks(prevTasks =>
+        prevTasks.map(task =>
+          task._id === editingTask._id
+            ? {
+                ...task,
+                ...taskDataFromForm,
+              }
+            : task
+        )
+      );
+      console.warn("Task updated locally. Backend update for edit not yet implemented.");
+    } else {
+      const response = await fetch('/.netlify/functions/add-task', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(dataToSend),
+      });
+
+      if (!response.ok) {
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (e) {
+        }
+        throw new Error(errorMessage);
+      }
+      const createdTask: Task = await response.json();
+      setTasks(prevTasks => [createdTask, ...prevTasks]);
     }
-  }, []);
+  } catch (e: any) {
+    console.error("Failed to save task:", e);
+    setError(e.message || "Could not save task.");
+  } finally {
+    setIsLoading(false);
+    closeModal();
+  }
+}, [editingTask, closeModal, setIsLoading, setError, setTasks]);
+
+const handleDeleteTask = useCallback(async (taskId: string) => {
+  if (window.confirm("Are you sure you want to delete this task?")) {
+    setTasks(prevTasks => prevTasks.filter(task => task._id !== taskId));
+    console.warn("Task deleted locally. Backend delete not yet implemented.");
+  }
+}, [setTasks]);
   
   const suggestDescription = useCallback(async (title: string): Promise<string> => {
     if (!title.trim()) return "Please provide a title first.";
@@ -102,10 +139,10 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const filteredTasks = tasks
+const filteredTasks = tasks
     .filter(task => 
       task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      task.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (task.description && task.description.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (task.assignees && task.assignees.some(a => a.toLowerCase().includes(searchTerm.toLowerCase()))) ||
       (task.stakeholders && task.stakeholders.some(s => s.toLowerCase().includes(searchTerm.toLowerCase()))) ||
       (task.startDate && task.startDate.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -132,20 +169,18 @@ const App: React.FC = () => {
       }
       return matchesFrom && matchesTo;
     })
-    .filter(task => { // New Actual Completion Date Range Filter
+    .filter(task => {
       if (!filterActualCompletionDateFrom && !filterActualCompletionDateTo) {
-        return true; // No date range filter applied
+        return true;
       }
       if (!task.actualCompletionDate) {
         return false; 
       }
       const taskCompletionDate = task.actualCompletionDate;
-
       let matchesFrom = true;
       if (filterActualCompletionDateFrom) {
         matchesFrom = taskCompletionDate >= filterActualCompletionDateFrom;
       }
-
       let matchesTo = true;
       if (filterActualCompletionDateTo) {
         matchesTo = taskCompletionDate <= filterActualCompletionDateTo;
@@ -173,7 +208,7 @@ const App: React.FC = () => {
             return 1;
         }
       }
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime(); // Added ! for createdAt assuming it will always exist
     });
 
   return (
@@ -196,22 +231,27 @@ const App: React.FC = () => {
         onFilterActualCompletionDateToChange={setFilterActualCompletionDateTo} 
       />
       <main className="flex-grow overflow-y-auto p-4 pt-[11rem] sm:pt-[9.5rem] md:pt-40 lg:pt-40">
-        {isLoading ? (
-          <div className="flex justify-center items-center h-full">
-            <p className="text-slate-600 text-lg">Loading tasks...</p>
-          </div>
-        ) : viewMode === 'list' ? (
-          <TaskList 
-            tasks={filteredTasks} 
-            onEditTask={openModalForEditTask} 
-            onDeleteTask={handleDeleteTask}
-          />
-        ) : (
-          <CalendarTimelineView 
-            tasks={filteredTasks}
-            onEditTask={openModalForEditTask} 
-          />
-        )}
+{isLoading ? (
+  <div className="flex justify-center items-center h-full">
+    <p className="text-slate-600 text-lg">Loading tasks...</p>
+  </div>
+) : error ? (
+  <div className="flex justify-center items-center h-full">
+    <p className="text-red-600 text-lg">Error: {error}</p>
+  </div>
+) : viewMode === 'list' ? (
+  <TaskList
+    tasks={filteredTasks}
+    onEditTask={openModalForEditTask}
+    onDeleteTask={handleDeleteTask}
+  />
+) : (
+  <CalendarTimelineView
+    tasks={filteredTasks}
+    onEditTask={openModalForEditTask}
+
+  />
+)}
       </main>
       <FAB onOpenNewTaskModal={openModalForNewTask} />
       {isModalOpen && (
